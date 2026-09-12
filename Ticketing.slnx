@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Ticketing.Api/Ticketing.Api.csproj" />
+    <Project Path="src/Ticketing.Domain/Ticketing.Domain.csproj" />
+    <Project Path="src/Ticketing.Infrastructure/Ticketing.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ticketing.IntegrationTests/Ticketing.IntegrationTests.csproj" />
+    <Project Path="tests/Ticketing.UnitTests/Ticketing.UnitTests.csproj" />
+  </Folder>
+</Solution>
