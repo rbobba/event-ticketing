@@ -387,3 +387,20 @@ dotnet_naming_style.s_camelcase.required_suffix =
 dotnet_naming_style.s_camelcase.word_separator = 
 dotnet_naming_style.s_camelcase.capitalization = camel_case
 
+
+# EF Core migrations are generated artefacts. Analyzer rules exist to improve code a
+# human maintains; a finding here is unactionable, because any edit is discarded the
+# next time the migration is scaffolded. Marking the folder generated is the honest
+# fix — narrower than a global NoWarn, which would also silence hand-written code.
+[**/Persistence/Migrations/*.cs]
+generated_code = true
+
+# Test method names are documentation, not an API surface. CA1707 exists so that
+# underscores in *public library* identifiers don't trip up consumers in other
+# languages; nothing consumes these names but the test runner and a human reading
+# output. The convention is also load-bearing here — each name carries its acceptance
+# criterion id (AC_2_3_...), which is what ties docs/spec.md to executable tests and
+# what the CI check greps for.
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+
