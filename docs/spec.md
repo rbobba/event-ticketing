@@ -9,7 +9,8 @@ Deliberate omissions, not oversights. Each names what would replace it.
 | Omitted | Why | What I would build |
 |---|---|---|
 | Payment provider | Not in the brief; would consume the budget on plumbing | Reserve → authorize → confirm, with compensation (ADR-0003) |
-| Authentication | Not in the brief | OIDC bearer tokens; buyer identity from the `sub` claim |
+| Authentication | Not in the brief | OIDC bearer tokens; buyer identity from the `sub` claim. Until then the order id is a capability: unguessable by construction, which is why identifiers are UUIDs and not sequential integers |
+| Multi-tenancy | No actor in the brief owns an event, and a tenant derived from an unauthenticated header is not isolation | `organiser_id` on `events`, denormalised onto `orders` and `tickets` so policies need no joins; `FORCE ROW LEVEL SECURITY`; tenant set per transaction with `SET LOCAL`; absent context resolves to the nil UUID so it fails closed |
 | Seat selection | Changes inventory from a counter to a set | Per-seat rows under the same locking strategy |
 | Refunds and cancellation | Not in the brief | Compensating order state machine, restoring inventory |
 | Multi-currency | One currency per event is sufficient here | Minor units plus ISO 4217 code, never summed across currencies |
@@ -47,8 +48,27 @@ tickets can be sold against them.
 | AC-1.4 | Given an event I have already read, when I PUT it with a stale `If-Match`, then the response is 412 and the event is unchanged. | `AC_1_4_StaleIfMatchReturns412` |
 | AC-1.5 | Given an event with tickets already sold, when I DELETE it, then the response is 409 and the event remains. | `AC_1_5_CannotDeleteEventWithSales` |
 | AC-1.6 | Given an event created with a venue time zone, when I GET it, then the response carries both the UTC instant and the IANA zone id. | `AC_1_6_EventTimeIsUtcPlusZone` |
+| AC-1.7 | Given a date and a time supplied as separate fields with a venue zone, when I GET the event, then the same local date and time are returned alongside the UTC instant. | `AC_1_7_LocalDateAndTimeRoundTrip` |
 
 Related invariants: INV-4, INV-6.
+
+### Fields
+
+The brief names seven fields. This is how each is stored.
+
+| Brief | Stored as | Note |
+|---|---|---|
+| name | `Name` | |
+| description | `Description` | Optional; may be empty, never null |
+| venue | `Venue` value object — `Name` + `TimeZoneId` | No identity of its own, so it is owned by the event and mapped to columns on the same table |
+| date | part of `StartsAtUtc` | Accepted and returned as a separate `date` field; combined with `time` and the venue zone on write |
+| time | part of `StartsAtUtc` | As above |
+| total ticket capacity | `TotalCapacity` | Ceiling for INV-4 |
+| pricing tiers | `PricingTier` rows | Each with a price, an allocation, and a remaining count |
+
+Date and time are two fields at the API boundary because the brief says so, and one
+instant in storage because two local parts cannot be ordered or compared across
+zones. The venue's IANA zone is what joins them.
 
 ## Story 2 — Purchase tickets
 
@@ -66,6 +86,8 @@ place at it.
 | AC-2.7 | Given an event whose start time has passed, when I purchase, then the request fails with 422. | `AC_2_7_CannotPurchasePastEvent` |
 | AC-2.8 | Given a quantity of zero or negative, when I purchase, then the request fails with 422. | `AC_2_8_InvalidQuantityRejected` |
 | AC-2.9 | Given the payment authorizer declines, when I purchase, then no tickets are issued and remaining is unchanged. | `AC_2_9_DeclinedPaymentIssuesNoTickets` |
+| AC-2.10 | Given a placed order, when I GET it by its id, then the order is returned with its tickets, quantity, and total. | `AC_2_10_OrderCanBeRetrievedById` |
+| AC-2.11 | Given an order id that does not exist, when I GET it, then the response is 404 with a Problem Details body. | `AC_2_11_UnknownOrderReturns404` |
 
 Related invariants: INV-1, INV-2, INV-3.
 
@@ -133,8 +155,22 @@ trace id, and the same id appears in the logs.
 | GET | `/v1/events/{id}/availability` | 200 | 404 |
 | POST | `/v1/events/{id}/orders` | 201 + `Location` | 404, 409, 422 |
 | GET | `/v1/events/{id}/sales-summary` | 200 | 404 |
+| GET | `/v1/orders/{orderId}` | 200 | 404 |
 
 `POST /v1/events/{id}/orders` requires an `Idempotency-Key` header.
+
+Order creation is nested under the event because creation is scoped to it. Order
+retrieval is flat, because the order id is globally unique and self-sufficient —
+requiring the event id too would force the caller to hold two identifiers and buy
+nothing, since the event id is not a second secret. The `Location` header returned
+by `POST` points at the flat URL.
+
+With no authentication in scope, **possession of the order id is the authorization**
+to read the order — a capability URL, in the manner of an airline booking reference.
+That is only sound because the id cannot be guessed, which is the load-bearing reason
+identifiers are UUIDs here. The known weakness is that URLs leak — browser history,
+`Referer`, access logs — so with authentication the order would be scoped to the
+buyer's `sub` claim and the id demoted to a convenience.
 
 ## Test strategy
 
@@ -165,3 +201,6 @@ on their own, with the reason in the commit message.
 | Date | Change | Reason |
 |---|---|---|
 | 2026-09-11 | Initial | — |
+| 2026-09-12 | Added `GET /v1/orders/{orderId}`, AC-2.10, AC-2.11 | `POST` returned a `Location` header pointing at no endpoint |
+| 2026-09-12 | Recorded multi-tenancy as out of scope | Absent from the brief; an unauthenticated tenant header is not isolation, and silence read as an oversight |
+| 2026-09-12 | Added event `Description` and a `Venue` value object; AC-1.7 | The brief names description and venue as fields; the model had neither |
