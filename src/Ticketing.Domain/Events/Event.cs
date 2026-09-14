@@ -91,5 +91,37 @@ public sealed class Event
         return tier;
     }
 
+    /// <summary>
+    /// Details only. Tiers are set at creation: changing an allocation after tickets are
+    /// sold means reconciling against what has already been issued, which is a feature
+    /// rather than an edit.
+    /// </summary>
+    public void UpdateDetails(string name, string? description, Venue venue,
+                              DateOnly date, TimeOnly time, int totalCapacity)
+    {
+        ArgumentNullException.ThrowIfNull(venue);
+
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("Event name is required.");
+
+        if (totalCapacity <= 0)
+            throw new DomainException("Total capacity must be greater than zero.");
+
+        // INV-4 from the other direction: capacity can't drop below what tiers hold.
+        if (totalCapacity < AllocatedSoFar)
+        {
+            throw new DomainException(
+                $"Capacity cannot be reduced to {totalCapacity}; {AllocatedSoFar} is " +
+                $"already allocated across this event's tiers.");
+        }
+
+        Name = name;
+        Description = description ?? string.Empty;
+        Venue = venue;
+        StartsAtUtc = venue.ToUtcInstant(date, time);
+        TotalCapacity = totalCapacity;
+    }
+
+
     public bool HasStarted(DateTimeOffset now) => now >= StartsAtUtc;
 }

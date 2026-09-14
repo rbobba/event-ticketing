@@ -10,16 +10,6 @@ namespace Ticketing.Api.Features.Orders;
 
 public sealed record PurchaseRequest(Guid PricingTierId, int Quantity);
 
-public sealed record OrderResponse(
-    Guid Id,
-    Guid EventId,
-    Guid PricingTierId,
-    int Quantity,
-    decimal UnitPrice,
-    decimal Total,
-    DateTimeOffset PlacedAtUtc,
-    IReadOnlyList<Guid> TicketIds);
-
 public static class PurchaseTickets
 {
     public static RouteGroupBuilder MapPurchaseTickets(this RouteGroupBuilder group)
@@ -127,7 +117,7 @@ public static class PurchaseTickets
 
         await transaction.CommitAsync(ct);
 
-        return TypedResults.Created($"/v1/orders/{order.Id}", ToResponse(order));
+        return TypedResults.Created($"/v1/orders/{order.Id}", OrderResponse.From(order));
     }
 
     private static IResult Replay(Order existing, PurchaseRequest request)
@@ -142,16 +132,7 @@ public static class PurchaseTickets
 
         // AC-2.4: the original order, no new tickets. 200 rather than 201 on purpose —
         // 201 asserts something was created, and a replay creates nothing.
-        return TypedResults.Ok(ToResponse(existing));
+        return TypedResults.Ok(OrderResponse.From(existing));
     }
 
-    private static OrderResponse ToResponse(Order order) => new(
-        order.Id,
-        order.EventId,
-        order.PricingTierId,
-        order.Quantity,
-        order.UnitPrice,
-        order.Total,
-        order.PlacedAtUtc,
-        order.Tickets.Select(t => t.Id).ToList());
 }

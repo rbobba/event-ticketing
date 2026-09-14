@@ -1,0 +1,182 @@
+### Event Ticketing API — a walkthrough of every endpoint.
+#
+# Run the requests top to bottom. Each one names the acceptance criterion it shows.
+# Later requests reuse ids from earlier responses, so nothing has to be pasted by hand.
+#
+# Needs: the API running (`dotnet run --project src/Ticketing.Api`) and an editor that
+# executes .http files — Visual Studio 2022+, or VS Code with the REST Client extension
+# (humao.rest-client). For a terminal-only walkthrough use demo/seed.ps1 instead.
+
+@host = http://localhost:5076
+
+
+### 1. Create an event with three pricing tiers.  (AC-1.1 — 201 with a Location header)
+# @name createEvent
+POST {{host}}/v1/events
+Content-Type: application/json
+
+{
+  "name": "Midwest Jazz Collective - Autumn Session",
+  "description": "Four sets across one evening, with a standing floor and a seated balcony.",
+  "venue": { "name": "Riverside Hall", "timeZoneId": "America/Chicago" },
+  "date": "2026-11-14",
+  "time": "19:30:00",
+  "totalCapacity": 500,
+  "tiers": [
+    { "name": "General Admission", "price": 45.00, "allocation": 350 },
+    { "name": "Balcony",           "price": 65.00, "allocation": 100 },
+    { "name": "Front Row",         "price": 120.00, "allocation": 50 }
+  ]
+}
+
+@eventId = {{createEvent.response.body.id}}
+@gaTierId = {{createEvent.response.body.tiers[0].id}}
+
+
+### 2. Tier allocations above capacity are refused.  (AC-1.2 — 422, nothing created)
+# 400 + 150 is more than the 500 seats the room has.
+POST {{host}}/v1/events
+Content-Type: application/json
+
+{
+  "name": "Impossible Show",
+  "description": "Rejected before it reaches the database.",
+  "venue": { "name": "Riverside Hall", "timeZoneId": "America/Chicago" },
+  "date": "2026-11-14",
+  "time": "19:30:00",
+  "totalCapacity": 500,
+  "tiers": [
+    { "name": "Floor",   "price": 50.00, "allocation": 400 },
+    { "name": "Balcony", "price": 30.00, "allocation": 150 }
+  ]
+}
+
+
+### 3. An unknown time zone is the caller's mistake, not a server error.  (422, not 500)
+POST {{host}}/v1/events
+Content-Type: application/json
+
+{
+  "name": "Bad Zone",
+  "description": "",
+  "venue": { "name": "Nowhere", "timeZoneId": "America/Chicagoo" },
+  "date": "2026-11-14",
+  "time": "19:30:00",
+  "totalCapacity": 10,
+  "tiers": [ { "name": "Only", "price": 10.00, "allocation": 10 } ]
+}
+
+
+### 4. Read the event back.  (AC-1.6, AC-1.7)
+# The response carries the local date and time AND the UTC instant, plus the zone id.
+# Note the ETag header — request 9 needs it.
+# @name getEvent
+GET {{host}}/v1/events/{{eventId}}
+
+
+### 5. List every event.
+GET {{host}}/v1/events
+
+
+### 6. Availability per tier.  (AC-3.1 — advisory, not a reservation)
+GET {{host}}/v1/events/{{eventId}}/availability
+
+
+### 7. Buy four General Admission tickets.  (AC-2.1 — 201, four ticket ids)
+# The total is computed from the stored tier price; there is no field to send one in.
+# @name purchase
+POST {{host}}/v1/events/{{eventId}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-key-0001
+
+{
+  "pricingTierId": "{{gaTierId}}",
+  "quantity": 4
+}
+
+@orderId = {{purchase.response.body.id}}
+
+
+### 8. Replay the exact same request.  (AC-2.4 — 200, the SAME order id, no new tickets)
+# Compare the id and the ticket ids against request 7. They are identical.
+POST {{host}}/v1/events/{{eventId}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-key-0001
+
+{
+  "pricingTierId": "{{gaTierId}}",
+  "quantity": 4
+}
+
+
+### 9. Same key, different payload.  (AC-2.5 — 409, because it is not a replay)
+POST {{host}}/v1/events/{{eventId}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-key-0001
+
+{
+  "pricingTierId": "{{gaTierId}}",
+  "quantity": 9
+}
+
+
+### 10. Buy more tickets than the tier holds.  (409 — all or nothing, none issued)
+POST {{host}}/v1/events/{{eventId}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-key-0002
+
+{
+  "pricingTierId": "{{gaTierId}}",
+  "quantity": 9999
+}
+
+
+### 11. A purchase with no Idempotency-Key.  (400 — it did not parse as a valid request)
+POST {{host}}/v1/events/{{eventId}}/orders
+Content-Type: application/json
+
+{
+  "pricingTierId": "{{gaTierId}}",
+  "quantity": 1
+}
+
+
+### 12. Retrieve the order.  (AC-2.10 — the order id is the credential, a capability URL)
+GET {{host}}/v1/orders/{{orderId}}
+
+
+### 13. An order id that does not exist.  (404, RFC 9457 Problem Details with a traceId)
+GET {{host}}/v1/orders/00000000-0000-0000-0000-000000000000
+
+
+### 14. Sales summary.  (AC-4.1, AC-4.3 — per tier and in total, exact to the cent)
+GET {{host}}/v1/events/{{eventId}}/sales-summary
+
+
+### 15. Update the event with a stale ETag.  (AC-1.4 — 412, the event is unchanged)
+# Any ETag that is not the current one will do; 1 is reliably stale.
+PUT {{host}}/v1/events/{{eventId}}
+Content-Type: application/json
+If-Match: "1"
+
+{
+  "name": "Midwest Jazz Collective - Autumn Session (Renamed)",
+  "description": "This update is rejected because the If-Match value is out of date.",
+  "venue": { "name": "Riverside Hall", "timeZoneId": "America/Chicago" },
+  "date": "2026-11-14",
+  "time": "19:30:00",
+  "totalCapacity": 500,
+  "tiers": []
+}
+
+
+### 16. Delete an event that has sold tickets.  (AC-1.5 — 409, the event remains)
+DELETE {{host}}/v1/events/{{eventId}}
+
+
+### 17. Health probes.
+# Liveness runs no checks at all — see the README for why that is deliberate.
+GET {{host}}/health/live
+
+###
+GET {{host}}/health/ready

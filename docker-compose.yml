@@ -1,0 +1,30 @@
+# Postgres only. The API runs on the host with `dotnet run`, which keeps the inner loop
+# fast and avoids a Dockerfile nobody asked for.
+#
+# The integration tests do not use this file at all — Testcontainers starts its own
+# database on a random port, so `dotnet test` works without anything running here.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: ticketing-postgres
+    environment:
+      POSTGRES_DB: ticketing
+      POSTGRES_USER: ticketing
+      # Not a secret. This container holds nothing, is bound to localhost, and is
+      # destroyed by `docker compose down -v`. Production supplies the connection
+      # string from a secret manager as an environment variable — see the README.
+      POSTGRES_PASSWORD: localdev
+    ports:
+      # Defaults to 5432, so no setup is needed. Override only when something else
+      # already holds the port:  TICKETING_DB_PORT=5433 docker compose up -d
+      - "${TICKETING_DB_PORT:-5432}:5432"
+    volumes:
+      - ticketing-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketing -d ticketing"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  ticketing-data:

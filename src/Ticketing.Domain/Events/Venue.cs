@@ -30,10 +30,21 @@ public sealed class Venue
         if (string.IsNullOrWhiteSpace(name))
             throw new DomainException("Venue name is required.");
 
-        // Throws on an unknown zone. Deliberate: this is also the check that fails
-        // loudly if the container ships without a tz database, rather than silently
-        // storing a zone that cannot be resolved later.
-        _ = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        // Throws on an unknown zone. this is also the check that fails
+        // loudly if the container ships without a tz database.
+        try
+        {
+            _ = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        }
+        catch (TimeZoneNotFoundException ex)
+        {
+            // A client's mistake, not a defect. Without this it would surface as a 500.
+            throw new DomainException($"'{timeZoneId}' is not a known IANA time zone id.", ex);
+        }
+        catch (InvalidTimeZoneException ex)
+        {
+            throw new DomainException($"The time zone data for '{timeZoneId}' is corrupt.", ex);
+        }
 
         return new Venue(name, timeZoneId);
     }

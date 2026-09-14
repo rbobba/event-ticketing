@@ -4,11 +4,13 @@ using Microsoft.EntityFrameworkCore.Design;
 namespace Ticketing.Infrastructure.Persistence;
 
 /// <summary>
-/// Lets `dotnet ef migrations add` build a context without starting the API.
+/// Lets the EF tooling build a context without starting the API.
 ///
-/// Generating a migration does not open a connection — the provider only needs to
-/// know which SQL dialect to emit — so the fallback below deliberately carries no
-/// credentials. Set TICKETING_DB if you want to point the tooling at a real database.
+/// The fallback matches the container in docker-compose.yml, so `dotnet ef database
+/// update` works straight after `docker compose up -d` with nothing to configure. Set
+/// TICKETING_DB to point the tooling elsewhere — a different port, or another
+/// environment. Nothing here is a credential for anything: the compose file declares
+/// the same password and says why.
 /// </summary>
 internal sealed class TicketingDbContextFactory : IDesignTimeDbContextFactory<TicketingDbContext>
 {
@@ -16,7 +18,7 @@ internal sealed class TicketingDbContextFactory : IDesignTimeDbContextFactory<Ti
     {
         var connectionString =
             Environment.GetEnvironmentVariable("TICKETING_DB")
-            ?? "Host=localhost;Database=ticketing_design_time";
+            ?? "Host=localhost;Port=5432;Database=ticketing;Username=ticketing;Password=localdev";
 
         var options = new DbContextOptionsBuilder<TicketingDbContext>()
             .UseNpgsql(connectionString)
