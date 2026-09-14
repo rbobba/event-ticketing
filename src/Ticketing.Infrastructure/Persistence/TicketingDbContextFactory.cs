@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+
+using Microsoft.Extensions.Logging;
 
 namespace Ticketing.Infrastructure.Persistence;
 
@@ -22,6 +25,14 @@ internal sealed class TicketingDbContextFactory : IDesignTimeDbContextFactory<Ti
 
         var options = new DbContextOptionsBuilder<TicketingDbContext>()
             .UseNpgsql(connectionString)
+
+            // Against an empty database, EF's first act is to read __EFMigrationsHistory,
+            // which does not exist yet. EF expects that and creates the table — but the
+            // command interceptor logs the failure at Error level first, so `dotnet ef`
+            // opens with a red "Failed executing DbCommand" on every clean setup. Demoted
+            // to Debug so the first thing a reader sees is not a non-problem. A migration
+            // that genuinely fails still throws, and `dotnet ef` still reports it.
+            .ConfigureWarnings(w => w.Log((RelationalEventId.CommandError, LogLevel.Debug)))
             .Options;
 
         return new TicketingDbContext(options);

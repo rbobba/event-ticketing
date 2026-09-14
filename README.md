@@ -11,6 +11,7 @@ You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and Docker.
 
 ```
 docker compose up -d
+dotnet restore
 dotnet ef database update --project src/Ticketing.Infrastructure
 dotnet run --project src/Ticketing.Api
 ```
